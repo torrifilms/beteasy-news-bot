@@ -96,36 +96,63 @@ CATEGORY_MAP: dict[str, int] = {}
 # 1. ПАРСИНГ RSS
 # ══════════════════════════════════════════════════════════════════════════════
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+}
+
+
+def fetch_rss(url: str) -> list:
+    """Загружает RSS по URL с браузерными заголовками, возвращает entries."""
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        log.info("RSS %s → HTTP %s, %d bytes", url, resp.status_code, len(resp.content))
+        if resp.status_code != 200:
+            log.warning("RSS %s вернул %s", url, resp.status_code)
+            return []
+        feed = feedparser.parse(resp.content)
+        log.info("RSS %s → %d записей", url, len(feed.entries))
+        return feed.entries
+    except Exception as exc:
+        log.warning("RSS %s → ошибка: %s", url, exc)
+        return []
+
+
 def fetch_news(max_per_category: int = 5) -> list[dict]:
     """Возвращает список новостей вида {title, summary, link, category}."""
     news_items: list[dict] = []
 
     for category, feeds in RSS_FEEDS.items():
         found = 0
+        log.info("=== Категория: %s ===", category)
         for url in feeds:
             if found >= max_per_category:
                 break
-            try:
-                feed = feedparser.parse(url)
-                for entry in feed.entries:
-                    if found >= max_per_category:
-                        break
-                    title   = entry.get("title", "").strip()
-                    summary = entry.get("summary", entry.get("description", "")).strip()
-                    link    = entry.get("link", "")
-                    # Чистим HTML-теги из summary
-                    summary = re.sub(r"<[^>]+>", "", summary)[:1000]
-                    if title and link:
-                        news_items.append({
-                            "title":    title,
-                            "summary":  summary,
-                            "link":     link,
-                            "category": category,
-                        })
-                        found += 1
-            except Exception as exc:
-                log.warning("RSS %s: %s", url, exc)
+            entries = fetch_rss(url)
+            for entry in entries:
+                if found >= max_per_category:
+                    break
+                title   = entry.get("title", "").strip()
+                summary = entry.get("summary", entry.get("description", "")).strip()
+                link    = entry.get("link", "")
+                summary = re.sub(r"<[^>]+>", "", summary)[:1000]
+                if title and link:
+                    news_items.append({
+                        "title":    title,
+                        "summary":  summary,
+                        "link":     link,
+                        "category": category,
+                    })
+                    found += 1
+                    log.info("  + [%s] %s", category, title[:80])
+        log.info("  Итого для '%s': %d новостей", category, found)
 
+    log.info("Всего собрано новостей: %d", len(news_items))
     random.shuffle(news_items)
     return news_items
 
