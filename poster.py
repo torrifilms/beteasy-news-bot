@@ -1,7 +1,7 @@
 """
 WordPress Auto News Poster
 Парсит новости киберспорта и спорта, генерирует статьи на русском через Groq,
-публикует на WordPress.
+загружает картинку и публикует на WordPress.
 """
 
 import os
@@ -22,10 +22,10 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Конфигурация из переменных окружения ───────────────────────────────────
-WP_URL       = os.environ["WP_URL"].rstrip("/")
-WP_USER      = os.environ["WP_USER"]
-WP_APP_PASS  = os.environ["WP_APP_PASS"]
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+WP_URL        = os.environ["WP_URL"].rstrip("/")
+WP_USER       = os.environ["WP_USER"]
+WP_APP_PASS   = os.environ["WP_APP_PASS"]
+GROQ_API_KEY  = os.environ["GROQ_API_KEY"]
 POSTS_PER_RUN = int(os.getenv("POSTS_PER_RUN", "3"))
 
 # ── Заголовки браузера для RSS-запросов ────────────────────────────────────
@@ -79,10 +79,57 @@ RSS_FEEDS = {
 
 CATEGORY_MAP: dict[str, int] = {}
 
+# ── Картинки по умолчанию для каждой категории ────────────────────────────
+DEFAULT_IMAGES = {
+    "Киберспорт": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1200&q=80",
+    "Футбол":     "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&q=80",
+    "Баскетбол":  "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=80",
+    "Хоккей":     "https://images.unsplash.com/photo-1515703407324-5f753afd8be8?w=1200&q=80",
+    "Теннис":     "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=1200&q=80",
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. ПАРСИНГ RSS
 # ══════════════════════════════════════════════════════════════════════════════
+
+def get_image_from_entry(entry) -> str | None:
+    """Извлекает URL картинки из RSS-записи."""
+    # Метод 1: media:content
+    media = entry.get("media_content", [])
+    if media and isinstance(media, list):
+        for m in media:
+            url = m.get("url", "")
+            if url and any(url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
+                return url
+
+    # Метод 2: media:thumbnail
+    thumb = entry.get("media_thumbnail", [])
+    if thumb and isinstance(thumb, list):
+        url = thumb[0].get("url", "")
+        if url:
+            return url
+
+    # Метод 3: enclosures
+    for enc in entry.get("enclosures", []):
+        if enc.get("type", "").startswith("image/"):
+            return enc.get("href") or enc.get("url")
+
+    # Метод 4: img тег в summary/content
+    for field in ("summary", "description", "content"):
+        text = ""
+        val = entry.get(field, "")
+        if isinstance(val, list):
+            text = " ".join(v.get("value", "") for v in val if isinstance(v, dict))
+        elif isinstance(val, str):
+            text = val
+        if text:
+            m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', text)
+            if m:
+                return m.group(1)
+
+    return None
+
 
 def fetch_rss(url: str) -> list:
     """Загружает RSS с браузерными заголовками, возвращает список записей."""
@@ -101,7 +148,7 @@ def fetch_rss(url: str) -> list:
 
 
 def fetch_news(max_per_category: int = 5) -> list[dict]:
-    """Возвращает список новостей {title, summary, link, category}."""
+    """Возвращает список новостей {title, summary, link, category, image_url}."""
     news_items: list[dict] = []
 
     for category, feeds in RSS_FEEDS.items():
@@ -119,11 +166,14 @@ def fetch_news(max_per_category: int = 5) -> list[dict]:
                 link    = entry.get("link", "")
                 summary = re.sub(r"<[^>]+>", "", summary)[:1000]
                 if title and link:
+                    # Извлекаем картинку из RSS или используем дефолтную
+                    image_url = get_image_from_entry(entry) or DEFAULT_IMAGES.get(category)
                     news_items.append({
-                        "title":    title,
-                        "summary":  summary,
-                        "link":     link,
-                        "category": category,
+                        "title":     title,
+                        "summary":   summary,
+                        "link":      link,
+                        "category":  category,
+                        "image_url": image_url,
                     })
                     found += 1
                     log.info("  + [%s] %s", category, title[:80])
@@ -135,7 +185,50 @@ def fetch_news(max_per_category: int = 5) -> list[dict]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. ГЕНЕРАЦИЯ ТЕКСТА ЧЕРЕЗ GROQ
+# 2. ЗАГРУЗКА КАРТИНКИ В WORDPRESS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def upload_image_to_wp(image_url: str, title: str) -> int | None:
+    """Скачивает картинку и загружает в медиабиблиотеку WordPress. Возвращает media ID."""
+    auth = HTTPBasicAuth(WP_USER, WP_APP_PASS)
+    try:
+        img_resp = requests.get(image_url, headers=HEADERS, timeout=20)
+        if img_resp.status_code != 200:
+            log.warning("Не удалось скачать картинку %s: HTTP %s", image_url, img_resp.status_code)
+            return None
+
+        content_type = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        ext = "jpg"
+        if "png" in content_type:
+            ext = "png"
+        elif "webp" in content_type:
+            ext = "webp"
+
+        safe_title = re.sub(r"[^\w\s-]", "", title)[:50].strip().replace(" ", "-").lower()
+        filename = f"{safe_title}.{ext}"
+
+        upload_headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Type": content_type,
+        }
+        resp = requests.post(
+            f"{WP_URL}/wp-json/wp/v2/media",
+            data=img_resp.content,
+            headers=upload_headers,
+            auth=auth,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        media_id = resp.json().get("id")
+        log.info("Картинка загружена: media_id=%s", media_id)
+        return media_id
+    except Exception as exc:
+        log.warning("Ошибка загрузки картинки: %s", exc)
+        return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. ГЕНЕРАЦИЯ ТЕКСТА ЧЕРЕЗ GROQ
 # ══════════════════════════════════════════════════════════════════════════════
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -182,7 +275,7 @@ def generate_article(news: dict) -> str | None:
         resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=60)
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"].strip()
-        log.info("Groq сгенерировал %d символов для '%s'", len(content), news["title"][:50])
+        log.info("Groq: сгенерировано %d символов для '%s'", len(content), news["title"][:50])
         return content
     except Exception as exc:
         log.error("Groq ошибка для '%s': %s", news["title"], exc)
@@ -190,7 +283,7 @@ def generate_article(news: dict) -> str | None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. WORDPRESS REST API
+# 4. WORDPRESS REST API
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_or_create_category(name: str) -> int:
@@ -225,10 +318,15 @@ def get_or_create_category(name: str) -> int:
 
 
 def publish_post(news: dict, content: str) -> bool:
-    """Публикует пост в WordPress."""
+    """Публикует пост в WordPress с featured image."""
     auth     = HTTPBasicAuth(WP_USER, WP_APP_PASS)
     endpoint = f"{WP_URL}/wp-json/wp/v2/posts"
     cat_id   = get_or_create_category(news["category"])
+
+    # Загружаем картинку
+    media_id = None
+    if news.get("image_url"):
+        media_id = upload_image_to_wp(news["image_url"], news["title"])
 
     footer = (
         f'<p><small>Источник: <a href="{news["link"]}" '
@@ -243,12 +341,19 @@ def publish_post(news: dict, content: str) -> bool:
         "date":       datetime.now(timezone.utc).isoformat(),
     }
 
+    # Прикрепляем featured image если загрузилась
+    if media_id:
+        post_data["featured_media"] = media_id
+
     try:
         resp = requests.post(endpoint, json=post_data, auth=auth, timeout=30)
         resp.raise_for_status()
         post_id  = resp.json().get("id")
         post_url = resp.json().get("link")
-        log.info("ОПУБЛИКОВАН пост #%s: %s", post_id, post_url)
+        log.info("ОПУБЛИКОВАН пост #%s%s: %s",
+                 post_id,
+                 f" (картинка media_id={media_id})" if media_id else " (без картинки)",
+                 post_url)
         return True
     except requests.HTTPError as exc:
         log.error("HTTP %s при публикации '%s': %s",
@@ -260,7 +365,7 @@ def publish_post(news: dict, content: str) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. ГЛАВНЫЙ ЦИКЛ
+# 5. ГЛАВНЫЙ ЦИКЛ
 # ══════════════════════════════════════════════════════════════════════════════
 
 def run() -> None:
