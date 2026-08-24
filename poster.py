@@ -139,7 +139,7 @@ def fetch_news(max_per_category: int = 5) -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_MODEL   = "openai/gpt-oss-20b"
 
 SYSTEM_PROMPT = (
     "Ты опытный спортивный журналист. Пишешь ТОЛЬКО на русском языке. "
