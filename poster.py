@@ -1,7 +1,7 @@
 """
 WordPress Auto News Poster
 Парсит новости киберспорта и спорта, генерирует статьи на русском через Groq,
-загружает картинку и публикует на WordPress с фокусным ключевиком.
+загружает картинку и публикует на WordPress с фокусным ключевиком для Rank Math.
 """
 
 import os
@@ -399,13 +399,18 @@ def get_or_create_category(name: str) -> int:
 
 
 def publish_post(news: dict, content: str) -> bool:
-    """Публикует пост в WordPress с featured image и фокусным ключевиком."""
+    """Публикует пост в WordPress с featured image и фокусным ключевиком для Rank Math."""
     auth     = HTTPBasicAuth(WP_USER, WP_APP_PASS)
     endpoint = f"{WP_URL}/wp-json/wp/v2/posts"
     cat_id   = get_or_create_category(news["category"])
 
     # Переводим заголовок на русский
     russian_title = translate_title_to_russian(news["title"])
+    
+    # Проверка: если заголовок не переведён или пустой - пропускаем
+    if not russian_title or russian_title.strip() == "" or len(russian_title) < 5:
+        log.warning("Заголовок не переведён или слишком короткий: '%s', пропускаем", russian_title)
+        return False
     
     # Извлекаем фокусный ключевик
     focus_keyword = extract_focus_keyword(russian_title, news["summary"])
@@ -426,6 +431,13 @@ def publish_post(news: dict, content: str) -> bool:
         "status":     "publish",
         "categories": [cat_id],
         "date":       datetime.now(timezone.utc).isoformat(),
+        "meta": {
+            "rank_math_focus_keyword": focus_keyword,
+            "rank_math_title": russian_title,
+            "rank_math_description": news["summary"][:160],
+            "_yoast_wpseo_focuskw": focus_keyword,
+            "keywords": focus_keyword,
+        }
     }
 
     # Прикрепляем featured image если загрузилась
@@ -438,15 +450,12 @@ def publish_post(news: dict, content: str) -> bool:
         post_id  = resp.json().get("id")
         post_url = resp.json().get("link")
         
-        # Если у WordPress установлен SEO плагин (Yoast, RankMath и т.д.),
-        # фокусный ключевик можно добавить через специальное поле (зависит от плагина)
-        # Для базовой версии просто логируем
         log.info("ОПУБЛИКОВАН пост #%s%s: %s",
                  post_id,
                  f" (картинка media_id={media_id})" if media_id else " (без картинки)",
                  post_url)
         log.info("Заголовок (RU): '%s'", russian_title)
-        log.info("Фокусный ключевик: '%s'", focus_keyword)
+        log.info("Фокусный ключевик (Rank Math): '%s'", focus_keyword)
         
         return True
     except requests.HTTPError as exc:
@@ -483,6 +492,11 @@ def run() -> None:
         content = generate_article(news)
         if not content:
             log.warning("Groq не вернул контент, пропускаем")
+            continue
+        
+        # Проверяем что контент не пустой и не просто пробелы
+        if not content.strip() or len(content) < 50:
+            log.warning("Контент слишком короткий или пустой (%d символов), пропускаем", len(content))
             continue
 
         success = publish_post(news, content)
