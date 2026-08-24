@@ -39,28 +39,35 @@ HEADERS = {
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
 }
 
-# ── RSS-источники (только русскоязычные) ──────────────────────────────────
+# ── RSS-источники (международные - доступны с GitHub) ──────────────────────
 RSS_FEEDS = {
     "Киберспорт": [
-        "https://www.cybersport.ru/rss/all",
-        "https://cyber.sports.ru/rss.xml",
+        "https://dotesports.com/dota-2/feed",
+        "https://dotesports.com/counter-strike/feed",
+        "https://www.hltv.org/rss/news",
+        "https://dotesports.com/feed",
+        "https://win.gg/rss.xml",
     ],
     "Футбол": [
-        "https://www.sports.ru/rss/football.xml",
-        "https://www.championat.com/rss/football/",
+        "https://feeds.bbci.co.uk/sport/football/rss.xml",
+        "https://www.espn.com/espn/rss/soccer/news",
+        "https://www.football-espana.net/feed",
+        "https://www.goal.com/feeds/en/news",
     ],
     "Баскетбол": [
-        "https://www.sports.ru/rss/basketball.xml",
-        "https://www.championat.com/rss/basketball/",
+        "https://feeds.bbci.co.uk/sport/basketball/rss.xml",
+        "https://www.espn.com/espn/rss/nba/news",
+        "https://www.nbcsports.com/rss/nbcsports/sections/nba/headlines/",
     ],
     "Хоккей": [
-        "https://www.sports.ru/rss/hockey.xml",
-        "https://www.championat.com/rss/hockey/",
-        "https://www.khl.ru/news/rss/",
+        "https://www.espn.com/espn/rss/nhl/news",
+        "https://www.nhl.com/rss/news.xml",
+        "https://feeds.bbci.co.uk/sport/winter-sports/rss.xml",
     ],
     "Теннис": [
-        "https://www.sports.ru/rss/tennis.xml",
-        "https://www.championat.com/rss/tennis/",
+        "https://feeds.bbci.co.uk/sport/tennis/rss.xml",
+        "https://www.espn.com/espn/rss/tennis/news",
+        "https://www.atptour.com/en/media/rss-feed/xml-feed",
     ],
 }
 
@@ -110,7 +117,7 @@ def get_image_from_entry(entry) -> str | None:
 
 
 def get_unsplash_image(query: str, category: str) -> str | None:
-    """Получает URL картинки с Unsplash через Search API."""
+    """Получает URL картинки с Unsplash через Search API или fallback."""
     try:
         search_terms = query.lower()
         search_terms = re.sub(r"[^\w\s]", " ", search_terms)
@@ -264,14 +271,13 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "openai/gpt-oss-20b"
 
 SYSTEM_PROMPT = (
-    "Ты опытный спортивный журналист. Пишешь ТОЛЬКО на русском языке. "
-    "Пишешь живые, интересные новостные статьи для сайта о ставках на спорт и киберспорт. "
+    "Ты опытный спортивный журналист. ВСЕГДА пишешь ТОЛЬКО на русском языке, даже если исходная новость на английском. "
+    "Переводи и адаптируй контент для русскоязычной аудитории. "
+    "Пишешь живые, интересные новостные статьи для спортивного сайта. "
     "Тон: профессиональный, но доступный. "
-    "Структура: вводный абзац с главным фактом, 2-3 абзаца с деталями и контекстом, "
-    "краткий итог. Без воды и лишних слов. "
-    "Используй только HTML теги: <p>, <b>, <ul>, <li>. "
-    "Не добавляй заголовок — он передаётся отдельно. "
-    "Если исходная новость на английском — переведи и изложи на русском языке."
+    "Структура: вводный абзац с главным фактом, 2-3 абзаца с деталями и контекстом, краткий итог. "
+    "Без воды и лишних слов. Используй только HTML теги: <p>, <b>, <ul>, <li>. "
+    "Не добавляй заголовок — он передаётся отдельно."
 )
 
 
