@@ -30,28 +30,61 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 POSTS_PER_RUN = int(os.getenv("POSTS_PER_RUN", "3"))
 
 # ── RSS-источники по категориям ────────────────────────────────────────────
+# Международные источники (доступны с серверов GitHub в США)
+# Российские сайты (cybersport.ru, sports.ru и др.) блокируют запросы
+# с зарубежных IP, поэтому используем их зеркала и международные аналоги.
 RSS_FEEDS = {
     "Киберспорт": [
+        # Международные — стабильно доступны
+        "https://dotesports.com/dota-2/feed",
+        "https://dotesports.com/counter-strike/feed",
+        "https://www.hltv.org/rss/news",
+        "https://dotesports.com/feed",
+        "https://win.gg/rss.xml",
+        # Русскоязычные с открытым RSS
+        "https://cyber.sports.ru/rss.xml",
         "https://www.cybersport.ru/rss/all",
-        "https://esports.ru/rss.xml",
+        "https://esportsonly.ru/feed/",
         "https://dota2.ru/rss.xml",
     ],
     "Футбол": [
-        "https://www.championat.com/rss/football/",
+        # Международные
+        "https://feeds.bbci.co.uk/sport/football/rss.xml",
+        "https://www.espn.com/espn/rss/soccer/news",
+        "https://www.football-espana.net/feed",
+        "https://www.goal.com/feeds/en/news",
+        # Русскоязычные
         "https://www.sports.ru/rss/football.xml",
-        "https://www.goal.com/feeds/ru/news",
+        "https://www.championat.com/rss/football/",
+        "https://football.kulichki.net/rss/news.rss",
     ],
     "Баскетбол": [
-        "https://www.championat.com/rss/basketball/",
+        # Международные
+        "https://feeds.bbci.co.uk/sport/basketball/rss.xml",
+        "https://www.espn.com/espn/rss/nba/news",
+        "https://www.nbcsports.com/rss/nbcsports/sections/nba/headlines/",
+        # Русскоязычные
         "https://www.sports.ru/rss/basketball.xml",
+        "https://www.championat.com/rss/basketball/",
     ],
     "Хоккей": [
-        "https://www.championat.com/rss/hockey/",
+        # Международные
+        "https://www.espn.com/espn/rss/nhl/news",
+        "https://www.nhl.com/rss/news.xml",
+        "https://feeds.bbci.co.uk/sport/winter-sports/rss.xml",
+        # Русскоязычные
         "https://www.sports.ru/rss/hockey.xml",
+        "https://www.championat.com/rss/hockey/",
+        "https://www.khl.ru/news/rss/",
     ],
     "Теннис": [
-        "https://www.championat.com/rss/tennis/",
+        # Международные
+        "https://feeds.bbci.co.uk/sport/tennis/rss.xml",
+        "https://www.espn.com/espn/rss/tennis/news",
+        "https://www.atptour.com/en/media/rss-feed/xml-feed",
+        # Русскоязычные
         "https://www.sports.ru/rss/tennis.xml",
+        "https://www.championat.com/rss/tennis/",
     ],
 }
 
