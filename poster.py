@@ -44,7 +44,6 @@ RSS_FEEDS = {
     "Киберспорт": [
         "https://www.cybersport.ru/rss/all",
         "https://cyber.sports.ru/rss.xml",
-        "https://dota2.ru/news/rss/",
     ],
     "Футбол": [
         "https://www.sports.ru/rss/football.xml",
