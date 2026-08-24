@@ -1,0 +1,40 @@
+name: Daily Sports News Publisher
+
+on:
+  schedule:
+    # Запуск каждый день в 9:00 UTC (12:00 МСК)
+    - cron: '0 9 * * *'
+  # Ручной запуск для тестирования
+  workflow_dispatch:
+    inputs:
+      posts_count:
+        description: 'Количество статей для публикации'
+        required: false
+        default: '3'
+
+jobs:
+  publish-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run news poster
+        env:
+          WP_URL:       ${{ secrets.WP_URL }}
+          WP_USER:      ${{ secrets.WP_USER }}
+          WP_APP_PASS:  ${{ secrets.WP_APP_PASS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          POSTS_PER_RUN: ${{ github.event.inputs.posts_count || '3' }}
+        run: python poster.py
