@@ -67,15 +67,6 @@ RSS_FEEDS = {
 
 CATEGORY_MAP: dict[str, int] = {}
 
-# ── Картинки по умолчанию для каждой категории ────────────────────────────
-DEFAULT_IMAGES = {
-    "Киберспорт": "https://source.unsplash.com/1200x800/?esports,gaming",
-    "Футбол":     "https://source.unsplash.com/1200x800/?football,soccer",
-    "Баскетбол":  "https://source.unsplash.com/1200x800/?basketball",
-    "Хоккей":     "https://source.unsplash.com/1200x800/?hockey",
-    "Теннис":     "https://source.unsplash.com/1200x800/?tennis",
-}
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. ПАРСИНГ RSS
@@ -119,23 +110,46 @@ def get_image_from_entry(entry) -> str | None:
     return None
 
 
-def get_unsplash_image(query: str) -> str | None:
-    """Получает URL картинки с Unsplash по запросу (без API ключа, используется публичный доступ)."""
+def get_unsplash_image(query: str, category: str) -> str | None:
+    """Получает URL картинки с Unsplash через Search API."""
     try:
-        # Используем Unsplash Source API для прямого получения картинки по поисковому запросу
         search_terms = query.lower()
-        # Заменяем специальные символы на пробелы
         search_terms = re.sub(r"[^\w\s]", " ", search_terms)
-        # Берём первые 2-3 слова
-        words = search_terms.split()[:3]
-        search_query = ",".join(words) if words else "sport"
+        words = search_terms.split()[:2]
+        search_query = " ".join(words) if words else category
         
-        image_url = f"https://source.unsplash.com/1200x800/?{search_query}"
-        log.info("Используем Unsplash картинку для '%s': %s", query[:50], search_query)
-        return image_url
+        # Используем публичный API Unsplash для поиска (без ключа, но с ограничениями)
+        resp = requests.get(
+            "https://api.unsplash.com/search/photos",
+            params={
+                "query": search_query,
+                "per_page": 1,
+                "orientation": "landscape",
+            },
+            timeout=10,
+        )
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("results"):
+                image_url = data["results"][0]["urls"]["regular"]
+                log.info("Unsplash найдена картинка для '%s'", search_query)
+                return image_url
     except Exception as exc:
-        log.warning("Ошибка получения Unsplash картинки: %s", exc)
-        return None
+        log.warning("Unsplash API ошибка: %s", exc)
+    
+    # Fallback: используем статические ссылки Unsplash по категориям
+    static_images = {
+        "Киберспорт": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1200&h=800&fit=crop",
+        "Футбол": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&h=800&fit=crop",
+        "Баскетбол": "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=800&fit=crop",
+        "Хоккей": "https://images.unsplash.com/photo-1515703407324-5f753afd8be8?w=1200&h=800&fit=crop",
+        "Теннис": "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=1200&h=800&fit=crop",
+    }
+    image_url = static_images.get(category)
+    if image_url:
+        log.info("Используем статическую картинку для категории '%s'", category)
+    return image_url
 
 
 def fetch_rss(url: str) -> list:
@@ -177,10 +191,7 @@ def fetch_news(max_per_category: int = 5) -> list[dict]:
                     image_url = get_image_from_entry(entry)
                     # Если не нашли - ищем на Unsplash по названию новости
                     if not image_url:
-                        image_url = get_unsplash_image(title)
-                    # Если и это не сработало - используем дефолтную для категории
-                    if not image_url:
-                        image_url = DEFAULT_IMAGES.get(category)
+                        image_url = get_unsplash_image(title, category)
                     
                     news_items.append({
                         "title":     title,
