@@ -1,7 +1,7 @@
 """
 WordPress Auto News Poster
 Парсит новости киберспорта и спорта, генерирует статьи на русском через Groq,
-загружает картинку и публикует на WordPress.
+загружает картинку и публикует на WordPress с фокусным ключевиком.
 """
 
 import os
@@ -281,6 +281,52 @@ SYSTEM_PROMPT = (
 )
 
 
+def translate_title_to_russian(title: str) -> str:
+    """Переводит заголовок на русский язык через Groq."""
+    groq_headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type":  "application/json",
+    }
+    payload = {
+        "model":       GROQ_MODEL,
+        "messages":    [
+            {
+                "role": "user",
+                "content": f"Переведи этот заголовок на русский язык, сохраняя суть и структуру. Верни ТОЛЬКО перевод без объяснений:\n\n{title}"
+            },
+        ],
+        "temperature": 0.5,
+        "max_tokens":  150,
+    }
+
+    try:
+        resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=30)
+        resp.raise_for_status()
+        translated = resp.json()["choices"][0]["message"]["content"].strip()
+        log.info("Заголовок переведён: '%s' → '%s'", title[:50], translated[:50])
+        return translated
+    except Exception as exc:
+        log.warning("Ошибка перевода заголовка: %s, используем оригинал", exc)
+        return title
+
+
+def extract_focus_keyword(title: str, summary: str) -> str:
+    """Извлекает фокусный ключевик из заголовка (первые 2-3 слова)."""
+    # Убираем служебные слова
+    stop_words = {"the", "a", "an", "and", "or", "in", "at", "to", "for", "of", "is", "are", "was", "were", "be", "been"}
+    
+    words = title.lower().split()
+    # Берём первые значимые слова
+    keywords = [w for w in words[:5] if w not in stop_words and len(w) > 2]
+    
+    if keywords:
+        focus_keyword = " ".join(keywords[:3])
+        log.info("Фокусный ключевик: '%s'", focus_keyword)
+        return focus_keyword
+    
+    return title[:50]
+
+
 def generate_article(news: dict) -> str | None:
     """Генерирует HTML-текст статьи через Groq API."""
     user_prompt = (
@@ -353,15 +399,21 @@ def get_or_create_category(name: str) -> int:
 
 
 def publish_post(news: dict, content: str) -> bool:
-    """Публикует пост в WordPress с featured image."""
+    """Публикует пост в WordPress с featured image и фокусным ключевиком."""
     auth     = HTTPBasicAuth(WP_USER, WP_APP_PASS)
     endpoint = f"{WP_URL}/wp-json/wp/v2/posts"
     cat_id   = get_or_create_category(news["category"])
 
+    # Переводим заголовок на русский
+    russian_title = translate_title_to_russian(news["title"])
+    
+    # Извлекаем фокусный ключевик
+    focus_keyword = extract_focus_keyword(russian_title, news["summary"])
+
     # Загружаем картинку
     media_id = None
     if news.get("image_url"):
-        media_id = upload_image_to_wp(news["image_url"], news["title"])
+        media_id = upload_image_to_wp(news["image_url"], russian_title)
 
     footer = (
         f'<p><small>Источник: <a href="{news["link"]}" '
@@ -369,7 +421,7 @@ def publish_post(news: dict, content: str) -> bool:
     )
 
     post_data = {
-        "title":      news["title"],
+        "title":      russian_title,
         "content":    content + footer,
         "status":     "publish",
         "categories": [cat_id],
@@ -385,17 +437,24 @@ def publish_post(news: dict, content: str) -> bool:
         resp.raise_for_status()
         post_id  = resp.json().get("id")
         post_url = resp.json().get("link")
+        
+        # Если у WordPress установлен SEO плагин (Yoast, RankMath и т.д.),
+        # фокусный ключевик можно добавить через специальное поле (зависит от плагина)
+        # Для базовой версии просто логируем
         log.info("ОПУБЛИКОВАН пост #%s%s: %s",
                  post_id,
                  f" (картинка media_id={media_id})" if media_id else " (без картинки)",
                  post_url)
+        log.info("Заголовок (RU): '%s'", russian_title)
+        log.info("Фокусный ключевик: '%s'", focus_keyword)
+        
         return True
     except requests.HTTPError as exc:
         log.error("HTTP %s при публикации '%s': %s",
-                  exc.response.status_code, news["title"], exc.response.text[:500])
+                  exc.response.status_code, russian_title, exc.response.text[:500])
         return False
     except Exception as exc:
-        log.error("Ошибка публикации '%s': %s", news["title"], exc)
+        log.error("Ошибка публикации '%s': %s", russian_title, exc)
         return False
 
 
