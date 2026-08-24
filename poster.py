@@ -42,36 +42,24 @@ HEADERS = {
 # ── RSS-источники ──────────────────────────────────────────────────────────
 RSS_FEEDS = {
     "Киберспорт": [
-        "https://dotesports.com/dota-2/feed",
-        "https://dotesports.com/counter-strike/feed",
-        "https://www.hltv.org/rss/news",
-        "https://dotesports.com/feed",
         "https://www.cybersport.ru/rss/all",
         "https://cyber.sports.ru/rss.xml",
+        "https://dota2.ru/news/rss/",
     ],
     "Футбол": [
-        "https://feeds.bbci.co.uk/sport/football/rss.xml",
-        "https://www.espn.com/espn/rss/soccer/news",
-        "https://www.football-espana.net/feed",
         "https://www.sports.ru/rss/football.xml",
         "https://www.championat.com/rss/football/",
     ],
     "Баскетбол": [
-        "https://feeds.bbci.co.uk/sport/basketball/rss.xml",
-        "https://www.espn.com/espn/rss/nba/news",
         "https://www.sports.ru/rss/basketball.xml",
         "https://www.championat.com/rss/basketball/",
     ],
     "Хоккей": [
-        "https://www.espn.com/espn/rss/nhl/news",
-        "https://www.nhl.com/rss/news.xml",
         "https://www.sports.ru/rss/hockey.xml",
         "https://www.championat.com/rss/hockey/",
         "https://www.khl.ru/news/rss/",
     ],
     "Теннис": [
-        "https://feeds.bbci.co.uk/sport/tennis/rss.xml",
-        "https://www.espn.com/espn/rss/tennis/news",
         "https://www.sports.ru/rss/tennis.xml",
         "https://www.championat.com/rss/tennis/",
     ],
