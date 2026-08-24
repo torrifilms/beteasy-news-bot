@@ -1,6 +1,7 @@
 """
 WordPress Auto News Poster
-Парсит новости киберспорта и спорта, генерирует статьи через Groq, публикует на WordPress.
+Парсит новости киберспорта и спорта, генерирует статьи на русском через Groq,
+публикует на WordPress.
 """
 
 import os
@@ -21,81 +22,13 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Конфигурация из переменных окружения ───────────────────────────────────
-WP_URL      = os.environ["WP_URL"].rstrip("/")          # https://beteasy.ru
-WP_USER     = os.environ["WP_USER"]                     # blogger
-WP_APP_PASS = os.environ["WP_APP_PASS"]                 # Application Password
+WP_URL       = os.environ["WP_URL"].rstrip("/")
+WP_USER      = os.environ["WP_USER"]
+WP_APP_PASS  = os.environ["WP_APP_PASS"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-
-# Сколько статей публиковать за один запуск
 POSTS_PER_RUN = int(os.getenv("POSTS_PER_RUN", "3"))
 
-# ── RSS-источники по категориям ────────────────────────────────────────────
-# Международные источники (доступны с серверов GitHub в США)
-# Российские сайты (cybersport.ru, sports.ru и др.) блокируют запросы
-# с зарубежных IP, поэтому используем их зеркала и международные аналоги.
-RSS_FEEDS = {
-    "Киберспорт": [
-        # Международные — стабильно доступны
-        "https://dotesports.com/dota-2/feed",
-        "https://dotesports.com/counter-strike/feed",
-        "https://www.hltv.org/rss/news",
-        "https://dotesports.com/feed",
-        "https://win.gg/rss.xml",
-        # Русскоязычные с открытым RSS
-        "https://cyber.sports.ru/rss.xml",
-        "https://www.cybersport.ru/rss/all",
-        "https://esportsonly.ru/feed/",
-        "https://dota2.ru/rss.xml",
-    ],
-    "Футбол": [
-        # Международные
-        "https://feeds.bbci.co.uk/sport/football/rss.xml",
-        "https://www.espn.com/espn/rss/soccer/news",
-        "https://www.football-espana.net/feed",
-        "https://www.goal.com/feeds/en/news",
-        # Русскоязычные
-        "https://www.sports.ru/rss/football.xml",
-        "https://www.championat.com/rss/football/",
-        "https://football.kulichki.net/rss/news.rss",
-    ],
-    "Баскетбол": [
-        # Международные
-        "https://feeds.bbci.co.uk/sport/basketball/rss.xml",
-        "https://www.espn.com/espn/rss/nba/news",
-        "https://www.nbcsports.com/rss/nbcsports/sections/nba/headlines/",
-        # Русскоязычные
-        "https://www.sports.ru/rss/basketball.xml",
-        "https://www.championat.com/rss/basketball/",
-    ],
-    "Хоккей": [
-        # Международные
-        "https://www.espn.com/espn/rss/nhl/news",
-        "https://www.nhl.com/rss/news.xml",
-        "https://feeds.bbci.co.uk/sport/winter-sports/rss.xml",
-        # Русскоязычные
-        "https://www.sports.ru/rss/hockey.xml",
-        "https://www.championat.com/rss/hockey/",
-        "https://www.khl.ru/news/rss/",
-    ],
-    "Теннис": [
-        # Международные
-        "https://feeds.bbci.co.uk/sport/tennis/rss.xml",
-        "https://www.espn.com/espn/rss/tennis/news",
-        "https://www.atptour.com/en/media/rss-feed/xml-feed",
-        # Русскоязычные
-        "https://www.sports.ru/rss/tennis.xml",
-        "https://www.championat.com/rss/tennis/",
-    ],
-}
-
-# WordPress категории (slug → id) — будут созданы/найдены автоматически
-CATEGORY_MAP: dict[str, int] = {}
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. ПАРСИНГ RSS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── Заголовки браузера для RSS-запросов ────────────────────────────────────
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -106,17 +39,61 @@ HEADERS = {
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
 }
 
+# ── RSS-источники ──────────────────────────────────────────────────────────
+RSS_FEEDS = {
+    "Киберспорт": [
+        "https://dotesports.com/dota-2/feed",
+        "https://dotesports.com/counter-strike/feed",
+        "https://www.hltv.org/rss/news",
+        "https://dotesports.com/feed",
+        "https://www.cybersport.ru/rss/all",
+        "https://cyber.sports.ru/rss.xml",
+    ],
+    "Футбол": [
+        "https://feeds.bbci.co.uk/sport/football/rss.xml",
+        "https://www.espn.com/espn/rss/soccer/news",
+        "https://www.football-espana.net/feed",
+        "https://www.sports.ru/rss/football.xml",
+        "https://www.championat.com/rss/football/",
+    ],
+    "Баскетбол": [
+        "https://feeds.bbci.co.uk/sport/basketball/rss.xml",
+        "https://www.espn.com/espn/rss/nba/news",
+        "https://www.sports.ru/rss/basketball.xml",
+        "https://www.championat.com/rss/basketball/",
+    ],
+    "Хоккей": [
+        "https://www.espn.com/espn/rss/nhl/news",
+        "https://www.nhl.com/rss/news.xml",
+        "https://www.sports.ru/rss/hockey.xml",
+        "https://www.championat.com/rss/hockey/",
+        "https://www.khl.ru/news/rss/",
+    ],
+    "Теннис": [
+        "https://feeds.bbci.co.uk/sport/tennis/rss.xml",
+        "https://www.espn.com/espn/rss/tennis/news",
+        "https://www.sports.ru/rss/tennis.xml",
+        "https://www.championat.com/rss/tennis/",
+    ],
+}
+
+CATEGORY_MAP: dict[str, int] = {}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. ПАРСИНГ RSS
+# ══════════════════════════════════════════════════════════════════════════════
 
 def fetch_rss(url: str) -> list:
-    """Загружает RSS по URL с браузерными заголовками, возвращает entries."""
+    """Загружает RSS с браузерными заголовками, возвращает список записей."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=15)
         log.info("RSS %s → HTTP %s, %d bytes", url, resp.status_code, len(resp.content))
         if resp.status_code != 200:
-            log.warning("RSS %s вернул %s", url, resp.status_code)
+            log.warning("RSS %s → нет ответа (HTTP %s)", url, resp.status_code)
             return []
         feed = feedparser.parse(resp.content)
-        log.info("RSS %s → %d записей", url, len(feed.entries))
+        log.info("RSS %s → найдено записей: %d", url, len(feed.entries))
         return feed.entries
     except Exception as exc:
         log.warning("RSS %s → ошибка: %s", url, exc)
@@ -124,7 +101,7 @@ def fetch_rss(url: str) -> list:
 
 
 def fetch_news(max_per_category: int = 5) -> list[dict]:
-    """Возвращает список новостей вида {title, summary, link, category}."""
+    """Возвращает список новостей {title, summary, link, category}."""
     news_items: list[dict] = []
 
     for category, feeds in RSS_FEEDS.items():
@@ -150,7 +127,7 @@ def fetch_news(max_per_category: int = 5) -> list[dict]:
                     })
                     found += 1
                     log.info("  + [%s] %s", category, title[:80])
-        log.info("  Итого для '%s': %d новостей", category, found)
+        log.info("Итого для '%s': %d новостей", category, found)
 
     log.info("Всего собрано новостей: %d", len(news_items))
     random.shuffle(news_items)
@@ -165,12 +142,14 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "llama3-70b-8192"
 
 SYSTEM_PROMPT = (
-    "Ты опытный спортивный журналист. Пишешь живые, интересные новостные статьи "
-    "на русском языке для сайта о ставках на спорт и киберспорт. "
+    "Ты опытный спортивный журналист. Пишешь ТОЛЬКО на русском языке. "
+    "Пишешь живые, интересные новостные статьи для сайта о ставках на спорт и киберспорт. "
     "Тон: профессиональный, но доступный. "
     "Структура: вводный абзац с главным фактом, 2-3 абзаца с деталями и контекстом, "
-    "краткий итог. Без воды и лишних слов. Только HTML: <p>, <b>, <ul>, <li>. "
-    "Не добавляй заголовок — он передаётся отдельно."
+    "краткий итог. Без воды и лишних слов. "
+    "Используй только HTML теги: <p>, <b>, <ul>, <li>. "
+    "Не добавляй заголовок — он передаётся отдельно. "
+    "Если исходная новость на английском — переведи и изложи на русском языке."
 )
 
 
@@ -181,11 +160,11 @@ def generate_article(news: dict) -> str | None:
         f"Заголовок новости: {news['title']}\n"
         f"Краткое описание: {news['summary']}\n"
         f"Источник: {news['link']}\n\n"
-        "Напиши полноценную новостную статью на основе этих данных. "
-        "Объём: 250-400 слов. Возвращай только HTML-контент статьи."
+        "Напиши полноценную новостную статью на РУССКОМ ЯЗЫКЕ на основе этих данных. "
+        "Объём: 250-400 слов. Возвращай только HTML-контент статьи без заголовка."
     )
 
-    headers = {
+    groq_headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type":  "application/json",
     }
@@ -200,12 +179,13 @@ def generate_article(news: dict) -> str | None:
     }
 
     try:
-        resp = requests.post(GROQ_API_URL, json=payload, headers=headers, timeout=60)
+        resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=60)
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"].strip()
+        log.info("Groq сгенерировал %d символов для '%s'", len(content), news["title"][:50])
         return content
     except Exception as exc:
-        log.error("Groq error для '%s': %s", news["title"], exc)
+        log.error("Groq ошибка для '%s': %s", news["title"], exc)
         return None
 
 
@@ -221,19 +201,17 @@ def get_or_create_category(name: str) -> int:
     auth = HTTPBasicAuth(WP_USER, WP_APP_PASS)
     base = f"{WP_URL}/wp-json/wp/v2/categories"
 
-    # Поиск существующей
     try:
         resp = requests.get(base, params={"search": name, "per_page": 5}, auth=auth, timeout=30)
         resp.raise_for_status()
-        cats = resp.json()
-        for cat in cats:
+        for cat in resp.json():
             if cat["name"].lower() == name.lower():
                 CATEGORY_MAP[name] = cat["id"]
+                log.info("Найдена категория '%s' → id=%d", name, cat["id"])
                 return cat["id"]
     except Exception as exc:
         log.warning("Поиск категории '%s': %s", name, exc)
 
-    # Создание новой
     try:
         resp = requests.post(base, json={"name": name}, auth=auth, timeout=30)
         resp.raise_for_status()
@@ -243,16 +221,15 @@ def get_or_create_category(name: str) -> int:
         return cat_id
     except Exception as exc:
         log.error("Создание категории '%s': %s", name, exc)
-        return 1  # fallback: Uncategorized
+        return 1
 
 
 def publish_post(news: dict, content: str) -> bool:
-    """Публикует пост в WordPress. Возвращает True при успехе."""
+    """Публикует пост в WordPress."""
     auth     = HTTPBasicAuth(WP_USER, WP_APP_PASS)
     endpoint = f"{WP_URL}/wp-json/wp/v2/posts"
     cat_id   = get_or_create_category(news["category"])
 
-    # Добавляем ссылку на источник в конец статьи
     footer = (
         f'<p><small>Источник: <a href="{news["link"]}" '
         f'target="_blank" rel="nofollow noopener">{news["link"]}</a></small></p>'
@@ -271,11 +248,11 @@ def publish_post(news: dict, content: str) -> bool:
         resp.raise_for_status()
         post_id  = resp.json().get("id")
         post_url = resp.json().get("link")
-        log.info("✅ Опубликован пост #%s: %s", post_id, post_url)
+        log.info("ОПУБЛИКОВАН пост #%s: %s", post_id, post_url)
         return True
     except requests.HTTPError as exc:
         log.error("HTTP %s при публикации '%s': %s",
-                  exc.response.status_code, news["title"], exc.response.text[:300])
+                  exc.response.status_code, news["title"], exc.response.text[:500])
         return False
     except Exception as exc:
         log.error("Ошибка публикации '%s': %s", news["title"], exc)
@@ -288,9 +265,15 @@ def publish_post(news: dict, content: str) -> bool:
 
 def run() -> None:
     log.info("=== Запуск автопостинга (%s) ===", datetime.now().strftime("%Y-%m-%d %H:%M"))
+    log.info("WordPress URL: %s", WP_URL)
+    log.info("Пользователь: %s", WP_USER)
 
     all_news  = fetch_news(max_per_category=5)
     published = 0
+
+    if not all_news:
+        log.error("Новости не найдены! Все RSS-ленты недоступны.")
+        return
 
     for news in all_news:
         if published >= POSTS_PER_RUN:
@@ -300,13 +283,13 @@ def run() -> None:
 
         content = generate_article(news)
         if not content:
+            log.warning("Groq не вернул контент, пропускаем")
             continue
 
         success = publish_post(news, content)
         if success:
             published += 1
 
-        # Пауза между запросами, чтобы не перегружать API
         time.sleep(3)
 
     log.info("=== Готово: опубликовано %d/%d статей ===", published, POSTS_PER_RUN)
