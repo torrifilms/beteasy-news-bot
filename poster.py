@@ -2,6 +2,7 @@
 WordPress Auto News Poster
 Парсит новости киберспорта и спорта, генерирует статьи на русском через Groq,
 загружает картинку и публикует на WordPress с фокусным ключевиком для Rank Math.
+Сохраняет историю опубликованных новостей чтобы избежать дубликатов.
 """
 
 import os
@@ -11,6 +12,7 @@ import random
 import logging
 import requests
 import feedparser
+import json
 from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
 
@@ -72,6 +74,36 @@ RSS_FEEDS = {
 }
 
 CATEGORY_MAP: dict[str, int] = {}
+
+# ── Файл истории опубликованных новостей ──────────────────────────────────
+PUBLISHED_HISTORY_FILE = "/tmp/published_news.json"
+
+
+def load_published_history() -> set:
+    """Загружает набор уже опубликованных ссылок из файла."""
+    try:
+        if os.path.exists(PUBLISHED_HISTORY_FILE):
+            with open(PUBLISHED_HISTORY_FILE, "r") as f:
+                data = json.load(f)
+                log.info("Загружена история: %d опубликованных ссылок", len(data.get("links", [])))
+                return set(data.get("links", []))
+    except Exception as exc:
+        log.warning("Ошибка загрузки истории: %s", exc)
+    return set()
+
+
+def save_published_history(published_links: set) -> None:
+    """Сохраняет набор опубликованных ссылок в файл."""
+    try:
+        data = {
+            "links": list(published_links),
+            "updated": datetime.now(timezone.utc).isoformat(),
+        }
+        with open(PUBLISHED_HISTORY_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+        log.info("История сохранена: %d ссылок", len(published_links))
+    except Exception as exc:
+        log.warning("Ошибка сохранения истории: %s", exc)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -174,8 +206,12 @@ def fetch_rss(url: str) -> list:
         return []
 
 
-def fetch_news(max_per_category: int = 5) -> list[dict]:
-    """Возвращает список новостей {title, summary, link, category, image_url}."""
+def fetch_news(max_per_category: int = 5, published_links: set = None) -> list[dict]:
+    """Возвращает список новостей {title, summary, link, category, image_url}.
+    Пропускает уже опубликованные."""
+    if published_links is None:
+        published_links = set()
+    
     news_items: list[dict] = []
 
     for category, feeds in RSS_FEEDS.items():
@@ -192,6 +228,12 @@ def fetch_news(max_per_category: int = 5) -> list[dict]:
                 summary = entry.get("summary", entry.get("description", "")).strip()
                 link    = entry.get("link", "")
                 summary = re.sub(r"<[^>]+>", "", summary)[:1000]
+                
+                # Пропускаем если уже опубликовано
+                if link in published_links:
+                    log.info("  ~ [%s] уже опубликовано: %s", category, title[:80])
+                    continue
+                
                 if title and link:
                     # Сначала пытаемся извлечь картинку из RSS
                     image_url = get_image_from_entry(entry)
@@ -476,11 +518,14 @@ def run() -> None:
     log.info("WordPress URL: %s", WP_URL)
     log.info("Пользователь: %s", WP_USER)
 
-    all_news  = fetch_news(max_per_category=5)
+    # Загружаем историю опубликованных новостей
+    published_links = load_published_history()
+    
+    all_news  = fetch_news(max_per_category=5, published_links=published_links)
     published = 0
 
     if not all_news:
-        log.error("Новости не найдены! Все RSS-ленты недоступны.")
+        log.error("Новые новости не найдены! Все RSS-ленты недоступны или все новости уже опубликованы.")
         return
 
     for news in all_news:
@@ -502,6 +547,10 @@ def run() -> None:
         success = publish_post(news, content)
         if success:
             published += 1
+            # Добавляем в историю опубликованных
+            published_links.add(news["link"])
+            # Сохраняем после каждой публикации
+            save_published_history(published_links)
 
         time.sleep(3)
 
