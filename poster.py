@@ -39,7 +39,7 @@ HEADERS = {
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
 }
 
-# ── RSS-источники ──────────────────────────────────────────────────────────
+# ── RSS-источники (только русскоязычные) ──────────────────────────────────
 RSS_FEEDS = {
     "Киберспорт": [
         "https://www.cybersport.ru/rss/all",
@@ -69,11 +69,11 @@ CATEGORY_MAP: dict[str, int] = {}
 
 # ── Картинки по умолчанию для каждой категории ────────────────────────────
 DEFAULT_IMAGES = {
-    "Киберспорт": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1200&q=80",
-    "Футбол":     "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&q=80",
-    "Баскетбол":  "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=80",
-    "Хоккей":     "https://images.unsplash.com/photo-1515703407324-5f753afd8be8?w=1200&q=80",
-    "Теннис":     "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=1200&q=80",
+    "Киберспорт": "https://source.unsplash.com/1200x800/?esports,gaming",
+    "Футбол":     "https://source.unsplash.com/1200x800/?football,soccer",
+    "Баскетбол":  "https://source.unsplash.com/1200x800/?basketball",
+    "Хоккей":     "https://source.unsplash.com/1200x800/?hockey",
+    "Теннис":     "https://source.unsplash.com/1200x800/?tennis",
 }
 
 
@@ -119,6 +119,25 @@ def get_image_from_entry(entry) -> str | None:
     return None
 
 
+def get_unsplash_image(query: str) -> str | None:
+    """Получает URL картинки с Unsplash по запросу (без API ключа, используется публичный доступ)."""
+    try:
+        # Используем Unsplash Source API для прямого получения картинки по поисковому запросу
+        search_terms = query.lower()
+        # Заменяем специальные символы на пробелы
+        search_terms = re.sub(r"[^\w\s]", " ", search_terms)
+        # Берём первые 2-3 слова
+        words = search_terms.split()[:3]
+        search_query = ",".join(words) if words else "sport"
+        
+        image_url = f"https://source.unsplash.com/1200x800/?{search_query}"
+        log.info("Используем Unsplash картинку для '%s': %s", query[:50], search_query)
+        return image_url
+    except Exception as exc:
+        log.warning("Ошибка получения Unsplash картинки: %s", exc)
+        return None
+
+
 def fetch_rss(url: str) -> list:
     """Загружает RSS с браузерными заголовками, возвращает список записей."""
     try:
@@ -154,8 +173,15 @@ def fetch_news(max_per_category: int = 5) -> list[dict]:
                 link    = entry.get("link", "")
                 summary = re.sub(r"<[^>]+>", "", summary)[:1000]
                 if title and link:
-                    # Извлекаем картинку из RSS или используем дефолтную
-                    image_url = get_image_from_entry(entry) or DEFAULT_IMAGES.get(category)
+                    # Сначала пытаемся извлечь картинку из RSS
+                    image_url = get_image_from_entry(entry)
+                    # Если не нашли - ищем на Unsplash по названию новости
+                    if not image_url:
+                        image_url = get_unsplash_image(title)
+                    # Если и это не сработало - используем дефолтную для категории
+                    if not image_url:
+                        image_url = DEFAULT_IMAGES.get(category)
+                    
                     news_items.append({
                         "title":     title,
                         "summary":   summary,
@@ -180,12 +206,17 @@ def upload_image_to_wp(image_url: str, title: str) -> int | None:
     """Скачивает картинку и загружает в медиабиблиотеку WordPress. Возвращает media ID."""
     auth = HTTPBasicAuth(WP_USER, WP_APP_PASS)
     try:
-        img_resp = requests.get(image_url, headers=HEADERS, timeout=20)
+        img_resp = requests.get(image_url, headers=HEADERS, timeout=20, allow_redirects=True)
         if img_resp.status_code != 200:
             log.warning("Не удалось скачать картинку %s: HTTP %s", image_url, img_resp.status_code)
             return None
 
+        # Если получили HTML вместо картинки - это ошибка
         content_type = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        if not content_type.startswith("image/"):
+            log.warning("URL вернул не картинку, а %s", content_type)
+            return None
+
         ext = "jpg"
         if "png" in content_type:
             ext = "png"
