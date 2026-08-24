@@ -49,6 +49,7 @@ RSS_FEEDS = {
         "https://www.hltv.org/rss/news",
         "https://dotesports.com/feed",
         "https://win.gg/rss.xml",
+        "https://dota2.ru/news/rss/",
     ],
     "Футбол": [
         "https://feeds.bbci.co.uk/sport/football/rss.xml",
