@@ -728,9 +728,42 @@ def get_or_create_category(name: str) -> int:
         log.error("Создание категории '%s': %s", name, exc)
         return 1
 
+def transliterate(text: str) -> str:
+    """Транслитерация русского текста в латиницу."""
+    if not text:
+        return ""
+
+    # Простая транслитерация (можно расширить)
+    translit = {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e",
+        "ё": "yo", "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k",
+        "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
+        "с": "s", "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts",
+        "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "",
+        "э": "e", "ю": "yu", "я": "ya",
+        "А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D", "Е": "E",
+        "Ё": "Yo", "Ж": "Zh", "З": "Z", "И": "I", "Й": "Y", "К": "K",
+        "Л": "L", "М": "M", "Н": "N", "О": "O", "П": "P", "Р": "R",
+        "С": "S", "Т": "T", "У": "U", "Ф": "F", "Х": "Kh", "Ц": "Ts",
+        "Ч": "Ch", "Ш": "Sh", "Щ": "Shch", "Ъ": "", "Ы": "Y", "Ь": "",
+        "Э": "E", "Ю": "Yu", "Я": "Ya",
+    }
+
+    result = []
+    for char in text:
+        result.append(translit.get(char, char))
+
+    # Убираем лишние пробелы и делаем безопасный slug
+    slug = "".join(result).lower()
+    slug = re.sub(r"[^a-z0-9\-]", "-", slug)
+    slug = re.sub(r"-+", "-", slug)
+    slug = slug.strip("-")
+
+    return slug or "news"
+
 
 def publish_post(news: dict, content: str, related: list[dict]) -> bool:
-    """Публикует пост в WordPress с картинкой, Rank Math и внутренней перелинковкой."""
+    """Публикует пост с транслитерированным slug."""
     auth     = wp_auth()
     endpoint = f"{WP_URL}/wp-json/wp/v2/posts"
     cat_id   = get_or_create_category(news["category"])
@@ -742,7 +775,6 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
         log.warning("Заголовок не переведён или слишком короткий: '%s', пропускаем", russian_title)
         return False
 
-    # Не публикуем, если заголовок остался на английском (нет кириллицы)
     if not re.search(r"[А-Яа-яЁё]", russian_title):
         log.warning("Заголовок без кириллицы, пропускаем: '%s'", russian_title)
         return False
@@ -762,6 +794,9 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
     content = inject_inline_links(content, related, news["category"], cat_url)
     related_block = build_related_block(related, news["category"], cat_url)
 
+    # Транслитерация для slug (ЧПУ)
+    slug = transliterate(russian_title)
+
     footer = (
         f'{related_block}'
         f'<p><small>Источник: <a href="{news["link"]}" '
@@ -774,6 +809,7 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
         "status":     "publish",
         "categories": [cat_id],
         "date":       datetime.now(timezone.utc).isoformat(),
+        "slug":       slug,                    # ← транслитерация для ЧПУ
         "meta": {
             "rank_math_focus_keyword": focus_keyword,
             "rank_math_title": russian_title,
@@ -794,10 +830,8 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
         post_url = resp.json().get("link")
 
         log.info(
-            "ОПУБЛИКОВАН пост #%s%s: %s",
-            post_id,
-            f" (картинка media_id={media_id})" if media_id else " (без картинки)",
-            post_url,
+            "ОПУБЛИКОВАН пост #%s (slug=%s): %s",
+            post_id, slug, post_url
         )
         log.info("Заголовок (RU): '%s'", russian_title)
         log.info("Фокусный ключевик (Rank Math): '%s'", focus_keyword)
@@ -806,13 +840,12 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
     except requests.HTTPError as exc:
         log.error(
             "HTTP %s при публикации '%s': %s",
-            exc.response.status_code, russian_title, exc.response.text[:500],
+            exc.response.status_code, russian_title, exc.response.text[:500]
         )
         return False
     except Exception as exc:
         log.error("Ошибка публикации '%s': %s", russian_title, exc)
         return False
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. ГЛАВНЫЙ ЦИКЛ
