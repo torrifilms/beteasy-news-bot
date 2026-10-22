@@ -405,6 +405,60 @@ def get_image_from_entry(entry) -> str | None:
     return None
 
 
+def get_openverse_image(query: str) -> str | None:
+    """Openverse — бесплатный поиск картинок без ключа."""
+    try:
+        resp = requests.get(
+            "https://api.openverse.org/v1/images/",
+            params={"q": query[:80], "page_size": 3, "license_type": "commercial"},
+            headers=HEADERS,
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            for result in data.get("results", []):
+                url = result.get("url") or result.get("thumbnail")
+                if url and url.startswith("http"):
+                    log.info("Openverse: найдена картинка")
+                    return url
+    except Exception as exc:
+        log.warning("Openverse ошибка: %s", exc)
+    return None
+
+
+def get_wikimedia_image(query: str) -> str | None:
+    """Wikimedia Commons — поиск без ключа."""
+    try:
+        resp = requests.get(
+            "https://commons.wikimedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "generator": "search",
+                "gsrsearch": query[:60],
+                "gsrlimit": 3,
+                "prop": "imageinfo",
+                "iiprop": "url",
+                "iiurlwidth": 1200,
+            },
+            headers=HEADERS,
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            pages = data.get("query", {}).get("pages", {})
+            for page in pages.values():
+                info = page.get("imageinfo", [])
+                if info:
+                    url = info[0].get("thumburl") or info[0].get("url")
+                    if url and url.startswith("http"):
+                        log.info("Wikimedia: найдена картинка")
+                        return url
+    except Exception as exc:
+        log.warning("Wikimedia ошибка: %s", exc)
+    return None
+
+
 def get_unsplash_image(query: str, category: str) -> str | None:
     """Получает URL картинки с Unsplash через Search API или fallback."""
     try:
@@ -488,13 +542,16 @@ def fetch_news(max_per_category: int = 5, published_links: set = None) -> list[d
                     continue
 
                 if title and link:
-                    # Сначала Unsplash / RSS (надёжно), AI — запасной
-                    image_url = get_unsplash_image(title, category)
+                    # Openverse → Wikimedia → Unsplash static → RSS
+                    search_q = title.split()[:4]
+                    search_q = " ".join(search_q) if search_q else category
+                    image_url = get_openverse_image(search_q)
+                    if not image_url:
+                        image_url = get_wikimedia_image(search_q)
+                    if not image_url:
+                        image_url = get_unsplash_image(title, category)
                     if not image_url:
                         image_url = get_image_from_entry(entry)
-                    if not image_url:
-                        img_prompt = generate_image_prompt(title, summary, category)
-                        image_url = generate_ai_image_url(img_prompt)
 
                     news_items.append({
                         "title":     title,
