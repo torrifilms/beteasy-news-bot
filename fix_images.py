@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Обновляет картинки на релевантные по командам (Wikimedia поиск)."""
+"""Обновляет картинки через Openverse (реальные фото команд)."""
 
 import os
-import re
 import httpx
 import time
 
@@ -10,48 +9,34 @@ WP_URL = os.environ.get("WP_BASE_URL", "https://beteasy.ru").rstrip("/")
 AUTH = (os.environ["WP_USERNAME"], os.environ["WP_APP_PASSWORD"])
 HEADERS = {"User-Agent": "BeteasyBot/1.0 (news@beteasy.ru)"}
 
-# Конкретные запросы для Wikimedia
 QUERIES = {
     "komo-razgromil": "Como 1907 football",
-    "rays-spas-arsenal": "Arsenal FC players",
-    "real-madrid-razgromil": "Real Madrid CF Bernabeu",
-    "galatasaray-obygral": "Galatasaray SK football",
-    "aston-villa": "Aston Villa FC",
-    "inter-obygral": "Inter Milan San Siro",
-    "lask-sensatsionno": "Sporting CP Lisbon",
-    "bryugge-razgromil": "Club Brugge",
-    "betis-obygral": "Real Betis",
-    "itogi-tretego": "UEFA Champions League trophy",
+    "rays-spas-arsenal": "Arsenal FC",
+    "real-madrid-razgromil": "Real Madrid football",
+    "galatasaray-obygral": "Galatasaray football",
+    "aston-villa": "Aston Villa football",
+    "inter-obygral": "Inter Milan football",
+    "lask-sensatsionno": "Sporting CP football",
+    "bryugge-razgromil": "Club Brugge football",
+    "betis-obygral": "Real Betis football",
+    "itogi-tretego": "Champions League trophy",
 }
 
-def search_wikimedia(query: str) -> str | None:
+def search_openverse(query: str) -> str | None:
     try:
         resp = httpx.get(
-            "https://commons.wikimedia.org/w/api.php",
-            params={
-                "action": "query",
-                "format": "json",
-                "generator": "search",
-                "gsrsearch": f"{query} filetype:bitmap",
-                "gsrlimit": 5,
-                "prop": "imageinfo",
-                "iiprop": "url|size",
-                "iiurlwidth": 1200,
-            },
+            "https://api.openverse.org/v1/images/",
+            params={"q": query, "page_size": 5, "license_type": "commercial"},
             headers=HEADERS,
-            timeout=12,
+            timeout=15,
         )
         if resp.status_code == 200:
-            pages = resp.json().get("query", {}).get("pages", {})
-            for page in pages.values():
-                info = page.get("imageinfo", [])
-                if info:
-                    url = info[0].get("thumburl") or info[0].get("url")
-                    size = info[0].get("size", 0)
-                    if url and url.startswith("http") and ".svg" not in url.lower() and size > 10000:
-                        return url
+            for result in resp.json().get("results", []):
+                url = result.get("url")
+                if url and url.startswith("http"):
+                    return url
     except Exception as e:
-        print(f"  wiki err: {e}")
+        print(f"  openverse err: {e}")
     return None
 
 def upload(client, url, name):
@@ -85,11 +70,11 @@ def main():
                 if key in slug:
                     print(f"\n→ {slug[:45]}")
                     print(f"  query: {query}")
-                    img_url = search_wikimedia(query)
+                    img_url = search_openverse(query)
                     if not img_url:
-                        print("  no image found")
+                        print("  no image")
                         continue
-                    print(f"  found: {img_url[:65]}")
+                    print(f"  found: {img_url[:70]}")
                     media_id = upload(client, img_url, slug[:30])
                     if media_id:
                         upd = client.post(
