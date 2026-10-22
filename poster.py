@@ -214,24 +214,37 @@ def _tokenize(text: str) -> set[str]:
 
 
 def select_related_links(news: dict, internal: dict, exclude_url: str | None = None, limit: int = 5) -> list[dict]:
-    """Подбирает релевантные внутренние страницы по категории и пересечению слов."""
+    """Подбирает только реально релевантные внутренние страницы.
+    Требует пересечение слов >= 2 или совпадение категории + 1 слово.
+    Не добирает случайные посты."""
     news_tokens = _tokenize(news.get("title", "") + " " + news.get("summary", "") + " " + news.get("category", ""))
+    news_cat = (news.get("category") or "").lower()
     scored: list[tuple[int, dict]] = []
 
     for post in internal.get("posts", []):
         if exclude_url and post["url"] == exclude_url:
             continue
         tokens = _tokenize(post["title"] + " " + post.get("excerpt", ""))
-        score = len(news_tokens & tokens)
-        if news.get("category") and news["category"].lower() in post["title"].lower():
-            score += 3
+        overlap = len(news_tokens & tokens)
+        score = overlap
+        # Бонус за ту же категорию
+        post_title_lower = post["title"].lower()
+        if news_cat and news_cat in post_title_lower:
+            score += 4
+        # Требуем минимум 2 общих слова ИЛИ категорию + 1 слово
+        if overlap < 2 and not (news_cat and news_cat in post_title_lower and overlap >= 1):
+            continue
         scored.append((score, {"title": post["title"], "url": post["url"], "type": "post"}))
 
+    # Страницы — только если есть пересечение
     for page in internal.get("pages", []):
         if exclude_url and page["url"] == exclude_url:
             continue
         tokens = _tokenize(page["title"])
-        score = len(news_tokens & tokens) + 1  # страницы чуть приоритетнее как хабы
+        overlap = len(news_tokens & tokens)
+        if overlap < 1:
+            continue
+        score = overlap + 1
         scored.append((score, {"title": page["title"], "url": page["url"], "type": "page"}))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -241,24 +254,14 @@ def select_related_links(news: dict, internal: dict, exclude_url: str | None = N
     for score, item in scored:
         if item["url"] in seen:
             continue
-        if score <= 0 and item["type"] != "page":
+        if score < 2:
             continue
         seen.add(item["url"])
         picked.append(item)
         if len(picked) >= limit:
             break
 
-    # Если релевантных мало — добираем свежими постами
-    if len(picked) < limit:
-        for post in internal.get("posts", []):
-            if post["url"] in seen or (exclude_url and post["url"] == exclude_url):
-                continue
-            picked.append({"title": post["title"], "url": post["url"], "type": "post"})
-            seen.add(post["url"])
-            if len(picked) >= limit:
-                break
-
-    log.info("Подобрано внутренних ссылок: %d", len(picked))
+    log.info("Подобрано релевантных ссылок: %d (мин. скор 2)", len(picked))
     return picked
 
 
@@ -655,8 +658,10 @@ def upload_image_to_wp(image_url: str, title: str, category: str = "") -> int | 
         safe_title = re.sub(r"[^\w\s-]", "", title)[:50].strip().replace(" ", "-").lower()
         filename = f"{safe_title}.{ext}"
 
+        # ASCII-only filename to avoid latin-1 header errors
+        safe_name = re.sub(r"[^a-z0-9\-]", "-", transliterate(title).lower())[:50].strip("-") or "news"
         upload_headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": f'attachment; filename="{safe_name}.jpg"',
             "Content-Type": content_type,
         }
         resp = requests.post(
@@ -799,7 +804,7 @@ def generate_article(news: dict, related: list[dict] | None = None) -> str | Non
 
 
 def sanitize_external_invented_links(content: str, allowed_urls: set[str]) -> str:
-    """Удаляет выдуманные Groq ссылки, оставляя только внутренние из белого списка и исходник."""
+    """Удаляет ВСЕ выдуманные Groq ссылки. Оставляет только внутренние из белого списка."""
     def _repl(m):
         href = m.group(1)
         inner = m.group(2)
