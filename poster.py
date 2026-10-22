@@ -488,13 +488,13 @@ def fetch_news(max_per_category: int = 5, published_links: set = None) -> list[d
                     continue
 
                 if title and link:
-                    # Сначала пробуем AI-картинку
-                    img_prompt = generate_image_prompt(title, summary, category)
-                    image_url = generate_ai_image_url(img_prompt)
+                    # Сначала Unsplash / RSS (надёжно), AI — запасной
+                    image_url = get_unsplash_image(title, category)
                     if not image_url:
                         image_url = get_image_from_entry(entry)
                     if not image_url:
-                        image_url = get_unsplash_image(title, category)
+                        img_prompt = generate_image_prompt(title, summary, category)
+                        image_url = generate_ai_image_url(img_prompt)
 
                     news_items.append({
                         "title":     title,
@@ -555,30 +555,33 @@ def generate_image_prompt(title: str, summary: str, category: str) -> str:
 
 
 def generate_ai_image_url(prompt: str) -> str | None:
-    """Генерирует URL картинки через Pollinations.ai (без ключа)."""
+    """Генерирует URL картинки через Pollinations.ai. Возвращает URL или None."""
     try:
         from urllib.parse import quote
-        encoded = quote(prompt[:200])
-        # Pollinations: просто GET на этот URL возвращает картинку
-        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=800&nologo=true&enhance=true"
-        # Проверяем, что URL отвечает
-        resp = requests.head(url, timeout=15, allow_redirects=True)
-        if resp.status_code in (200, 301, 302):
-            log.info("AI-картинка сгенерирована: %s", url[:80])
-            return url
-        log.warning("Pollinations вернул %s", resp.status_code)
+        encoded = quote(prompt[:180])
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=800&nologo=true"
+        # Не проверяем HEAD — сразу возвращаем URL, скачивание проверит позже
+        log.info("AI-картинка URL подготовлен")
+        return url
     except Exception as exc:
-        log.warning("Ошибка генерации AI-картинки: %s", exc)
+        log.warning("Ошибка подготовки AI-картинки: %s", exc)
     return None
 
 
-def upload_image_to_wp(image_url: str, title: str) -> int | None:
-    """Скачивает картинку и загружает в медиабиблиотеку WordPress. Возвращает media ID."""
+def upload_image_to_wp(image_url: str, title: str, category: str = "") -> int | None:
+    """Скачивает картинку и загружает в медиабиблиотеку WordPress. Возвращает media ID.
+    Если AI-картинка не скачалась — пробует Unsplash."""
     auth = wp_auth()
     try:
         img_resp = requests.get(image_url, headers=HEADERS, timeout=20, allow_redirects=True)
         if img_resp.status_code != 200:
-            log.warning("Не удалось скачать картинку %s: HTTP %s", image_url, img_resp.status_code)
+            log.warning("Не удалось скачать картинку %s: HTTP %s", image_url[:80], img_resp.status_code)
+            # Fallback на Unsplash если это был AI
+            if "pollinations" in (image_url or "").lower() and category:
+                fallback = get_unsplash_image(title, category)
+                if fallback and fallback != image_url:
+                    log.info("Пробуем Unsplash fallback")
+                    return upload_image_to_wp(fallback, title, category)
             return None
 
         content_type = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
@@ -844,7 +847,7 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
 
     media_id = None
     if news.get("image_url"):
-        media_id = upload_image_to_wp(news["image_url"], russian_title)
+        media_id = upload_image_to_wp(news["image_url"], russian_title, news.get("category", ""))
 
     allowed_urls = {item["url"] for item in related if item.get("url")}
     if cat_url:
