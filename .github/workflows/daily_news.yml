@@ -2,8 +2,8 @@ name: Daily Sports News Publisher
 
 on:
   schedule:
-    # Запуск каждый день в 9:00 UTC (12:00 МСК)
-    - cron: '0 9 * * *'
+    # Каждые 2 часа (UTC)
+    - cron: '0 */2 * * *'
   # Ручной запуск для тестирования
   workflow_dispatch:
     inputs:
