@@ -44,16 +44,16 @@ HEADERS = {
 # ── RSS-источники (международные - доступны с GitHub) ──────────────────────
 RSS_FEEDS = {
     "Киберспорт": [
+        "https://cybersport.ru/rss/materials",
+        "https://www.cybersport.ru/rss/materials",
         "https://dotesports.com/dota-2/feed",
         "https://dotesports.com/counter-strike/feed",
         "https://www.hltv.org/rss/news",
-        "https://dotesports.com/feed",
-        "https://win.gg/rss.xml",
     ],
     "Футбол": [
+        "https://www.championat.com/rss/news/football/",
         "https://feeds.bbci.co.uk/sport/football/rss.xml",
         "https://www.espn.com/espn/rss/soccer/news",
-        "https://www.football-espana.net/feed",
         "https://www.goal.com/feeds/en/news",
     ],
     "Баскетбол": [
@@ -488,7 +488,11 @@ def fetch_news(max_per_category: int = 5, published_links: set = None) -> list[d
                     continue
 
                 if title and link:
-                    image_url = get_image_from_entry(entry)
+                    # Сначала пробуем AI-картинку
+                    img_prompt = generate_image_prompt(title, summary, category)
+                    image_url = generate_ai_image_url(img_prompt)
+                    if not image_url:
+                        image_url = get_image_from_entry(entry)
                     if not image_url:
                         image_url = get_unsplash_image(title, category)
 
@@ -511,6 +515,62 @@ def fetch_news(max_per_category: int = 5, published_links: set = None) -> list[d
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. ЗАГРУЗКА КАРТИНКИ В WORDPRESS
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+def generate_image_prompt(title: str, summary: str, category: str) -> str:
+    """Генерирует промпт для картинки через Groq."""
+    groq_headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "Напиши короткий промпт на английском (15-25 слов) для генерации реалистичной спортивной фотографии. "
+                    "Тема: " + title + ". Категория: " + category + ". "
+                    "Описание: " + (summary[:200] if summary else "") + ". "
+                    "Стиль: professional sports photography, dynamic, high quality, no text, no logos. "
+                    "Верни ТОЛЬКО промпт, без кавычек и пояснений."
+                ),
+            }
+        ],
+        "temperature": 0.6,
+        "max_tokens": 80,
+    }
+    try:
+        resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=30)
+        resp.raise_for_status()
+        prompt = resp.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+        prompt = re.sub(r"^(prompt|image prompt)\s*:\s*", "", prompt, flags=re.I).strip()
+        if len(prompt) < 10:
+            prompt = f"professional sports photography, {category}, dynamic action, high quality"
+        log.info("Промпт для картинки: %s", prompt[:80])
+        return prompt
+    except Exception as exc:
+        log.warning("Не удалось сгенерировать промпт: %s", exc)
+        return f"professional sports photography, {category}, dynamic action, high quality"
+
+
+def generate_ai_image_url(prompt: str) -> str | None:
+    """Генерирует URL картинки через Pollinations.ai (без ключа)."""
+    try:
+        from urllib.parse import quote
+        encoded = quote(prompt[:200])
+        # Pollinations: просто GET на этот URL возвращает картинку
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=800&nologo=true&enhance=true"
+        # Проверяем, что URL отвечает
+        resp = requests.head(url, timeout=15, allow_redirects=True)
+        if resp.status_code in (200, 301, 302):
+            log.info("AI-картинка сгенерирована: %s", url[:80])
+            return url
+        log.warning("Pollinations вернул %s", resp.status_code)
+    except Exception as exc:
+        log.warning("Ошибка генерации AI-картинки: %s", exc)
+    return None
+
 
 def upload_image_to_wp(image_url: str, title: str) -> int | None:
     """Скачивает картинку и загружает в медиабиблиотеку WordPress. Возвращает media ID."""
@@ -563,8 +623,8 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "openai/gpt-oss-20b"
 
 SYSTEM_PROMPT = (
-    "Ты опытный спортивный журналист. ВСЕГДА пишешь ТОЛЬКО на русском языке, даже если исходная новость на английском. "
-    "Переводи и адаптируй контент для русскоязычной аудитории. "
+    "Ты опытный спортивный журналист. ВСЕГДА пишешь ТОЛЬКО на русском языке. "
+    "Пишешь ОРИГИНАЛЬНЫЕ новости: не пересказывай источник дословно, а создавай свой текст на основе фактов. "
     "Пишешь живые, интересные новостные статьи для спортивного сайта. "
     "Тон: профессиональный, но доступный. "
     "Структура: вводный абзац с главным фактом, 2-3 абзаца с деталями и контекстом, краткий итог. "
@@ -647,8 +707,9 @@ def generate_article(news: dict, related: list[dict] | None = None) -> str | Non
         f"Заголовок новости: {news['title']}\n"
         f"Краткое описание: {news['summary']}\n"
         f"Источник: {news['link']}\n\n"
-        "Напиши полноценную новостную статью на РУССКОМ ЯЗЫКЕ на основе этих данных. "
-        "Объём: 250-400 слов. Возвращай только HTML-контент статьи без заголовка."
+        "Напиши ОРИГИНАЛЬНУЮ новостную статью на русском языке по этой теме. "
+        "Не копируй текст источника — перескажи факты своими словами, добавь контекст и анализ. "
+        "Объём: 280-450 слов. Возвращай только HTML-контент статьи без заголовка."
         + links_hint
     )
 
