@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Обновляет картинки через Openverse (реальные фото команд)."""
+"""Ищет реальные фото команд в Wikimedia (namespace=6) и обновляет посты."""
 
 import os
 import httpx
@@ -10,33 +10,60 @@ AUTH = (os.environ["WP_USERNAME"], os.environ["WP_APP_PASSWORD"])
 HEADERS = {"User-Agent": "BeteasyBot/1.0 (news@beteasy.ru)"}
 
 QUERIES = {
-    "komo-razgromil": "Como 1907 football",
-    "rays-spas-arsenal": "Arsenal FC",
-    "real-madrid-razgromil": "Real Madrid football",
+    "komo-razgromil": "Como 1907 football stadium",
+    "rays-spas-arsenal": "Arsenal FC players",
+    "real-madrid-razgromil": "Real Madrid Bernabeu",
     "galatasaray-obygral": "Galatasaray football",
-    "aston-villa": "Aston Villa football",
-    "inter-obygral": "Inter Milan football",
-    "lask-sensatsionno": "Sporting CP football",
-    "bryugge-razgromil": "Club Brugge football",
-    "betis-obygral": "Real Betis football",
+    "aston-villa": "Aston Villa Park",
+    "inter-obygral": "Inter Milan San Siro",
+    "lask-sensatsionno": "Sporting CP Lisbon stadium",
+    "bryugge-razgromil": "Club Brugge stadium",
+    "betis-obygral": "Real Betis Sevilla",
     "itogi-tretego": "Champions League trophy",
 }
 
-def search_openverse(query: str) -> str | None:
+def search_file(query: str) -> str | None:
     try:
-        resp = httpx.get(
-            "https://api.openverse.org/v1/images/",
-            params={"q": query, "page_size": 5, "license_type": "commercial"},
+        # 1. Найти файл
+        r = httpx.get(
+            "https://commons.wikimedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "list": "search",
+                "srsearch": query,
+                "srnamespace": 6,
+                "srlimit": 3,
+            },
             headers=HEADERS,
-            timeout=15,
+            timeout=12,
         )
-        if resp.status_code == 200:
-            for result in resp.json().get("results", []):
-                url = result.get("url")
-                if url and url.startswith("http"):
-                    return url
+        if r.status_code != 200:
+            return None
+        titles = [x["title"] for x in r.json().get("query", {}).get("search", [])]
+        if not titles:
+            return None
+        # 2. Получить URL
+        r2 = httpx.get(
+            "https://commons.wikimedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "titles": titles[0],
+                "prop": "imageinfo",
+                "iiprop": "url",
+                "iiurlwidth": 1200,
+            },
+            headers=HEADERS,
+            timeout=12,
+        )
+        pages = r2.json().get("query", {}).get("pages", {})
+        for page in pages.values():
+            info = page.get("imageinfo", [])
+            if info:
+                return info[0].get("thumburl") or info[0].get("url")
     except Exception as e:
-        print(f"  openverse err: {e}")
+        print(f"  search err: {e}")
     return None
 
 def upload(client, url, name):
@@ -68,13 +95,13 @@ def main():
             slug = post.get("slug", "")
             for key, query in QUERIES.items():
                 if key in slug:
-                    print(f"\n→ {slug[:45]}")
+                    print(f"\n→ {slug[:40]}")
                     print(f"  query: {query}")
-                    img_url = search_openverse(query)
+                    img_url = search_file(query)
                     if not img_url:
-                        print("  no image")
+                        print("  not found")
                         continue
-                    print(f"  found: {img_url[:70]}")
+                    print(f"  found: {img_url[:65]}")
                     media_id = upload(client, img_url, slug[:30])
                     if media_id:
                         upd = client.post(
@@ -84,7 +111,7 @@ def main():
                         )
                         print(f"  media={media_id} status={upd.status_code}")
                         updated += 1
-                    time.sleep(1)
+                    time.sleep(1.5)
                     break
         print(f"\nОбновлено: {updated}")
 
