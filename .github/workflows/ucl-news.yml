@@ -1,0 +1,20 @@
+name: Publish UCL News
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install httpx
+      - name: Publish 10 UCL news
+        env:
+          WP_BASE_URL: ${{ secrets.WP_URL }}
+          WP_USERNAME: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASS }}
+        run: python ucl_news.py
