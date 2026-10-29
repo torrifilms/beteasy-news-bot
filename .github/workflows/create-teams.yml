@@ -1,4 +1,4 @@
-name: Create Team Pages
+name: Create Teams
 on:
   workflow_dispatch:
 jobs:
