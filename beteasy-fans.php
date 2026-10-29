@@ -1,68 +1,45 @@
 <?php
 /**
  * Plugin Name: Beteasy Fan Counter
- * Description: Server-side fan counter with anti-abuse
- * Version: 1.1
+ * Description: Fan counter via admin-ajax (bypasses REST restriction)
+ * Version: 1.2
  */
 if (!defined('ABSPATH')) exit;
 
-add_action('rest_api_init', function() {
-    register_rest_route('beteasy/v1', '/fan/(?P<slug>[a-z0-9\-]+)', [
-        [
-            'methods' => 'GET',
-            'callback' => 'beteasy_get_fans',
-            'permission_callback' => '__return_true',
-        ],
-        [
-            'methods' => 'POST',
-            'callback' => 'beteasy_toggle_fan',
-            'permission_callback' => '__return_true',
-        ],
-    ]);
-});
+// AJAX handlers (work for logged-in and guests)
+add_action('wp_ajax_beteasy_fan', 'beteasy_fan_handler');
+add_action('wp_ajax_nopriv_beteasy_fan', 'beteasy_fan_handler');
 
-function beteasy_get_fans($request) {
-    $slug = sanitize_title($request['slug']);
-    $count = (int) get_option('beteasy_fans_' . $slug, 0);
-    return new WP_REST_Response(['count' => $count], 200);
-}
-
-function beteasy_toggle_fan($request) {
-    $slug = sanitize_title($request['slug']);
-    $ip = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] : ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
-    $ip = trim($ip);
-    $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 100);
-    $fingerprint = md5($slug . $ip . $ua);
-    $key = 'beteasy_fan_' . $fingerprint;
-
-    // Strict rate limit: 1 action per fingerprint per 24h
+function beteasy_fan_handler() {
+    $slug = sanitize_title($_POST['slug'] ?? '');
+    $action = sanitize_text_field($_POST['do'] ?? 'get');
+    
+    if (!$slug) {
+        wp_send_json_error('no slug');
+    }
+    
+    $ip = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]) : ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 80);
+    $key = 'bfan_' . md5($slug . $ip . $ua);
+    
+    if ($action === 'get') {
+        $count = (int) get_option('beteasy_fans_' . $slug, 0);
+        wp_send_json_success(['count' => $count]);
+    }
+    
     if (get_transient($key)) {
         $count = (int) get_option('beteasy_fans_' . $slug, 0);
-        return new WP_REST_Response(['count' => $count, 'status' => 'limited'], 200);
+        wp_send_json_success(['count' => $count, 'status' => 'limited']);
     }
-
+    
     $count = (int) get_option('beteasy_fans_' . $slug, 0);
-    $body = $request->get_json_params();
-    $action = isset($body['action']) ? $body['action'] : 'add';
-
     if ($action === 'remove') {
         $count = max(0, $count - 1);
     } else {
         $count++;
     }
-
     update_option('beteasy_fans_' . $slug, $count, false);
-    set_transient($key, time(), DAY_IN_SECONDS);
-
-    return new WP_REST_Response(['count' => $count, 'status' => 'ok'], 200);
+    set_transient($key, 1, DAY_IN_SECONDS);
+    
+    wp_send_json_success(['count' => $count, 'status' => 'ok']);
 }
-
-// Allow public access to our endpoint
-add_filter('rest_authentication_errors', function($result) {
-    if (!empty($result)) return $result;
-    $route = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
-    if (strpos($route, '/wp-json/beteasy/v1/fan/') !== false) {
-        return true;
-    }
-    return $result;
-});
