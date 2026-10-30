@@ -578,7 +578,8 @@ def fetch_news(max_per_category: int = 5, published_links: set = None) -> list[d
 
 
 def generate_image_prompt(title: str, summary: str, category: str) -> str:
-    """Генерирует промпт для картинки через Groq."""
+    """Генерирует детальный профессиональный промпт для картинки через Groq.
+    Извлекает конкретных игроков, команды, счёт, событие и создаёт кинематографичное описание."""
     groq_headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
@@ -587,32 +588,45 @@ def generate_image_prompt(title: str, summary: str, category: str) -> str:
         "model": GROQ_MODEL,
         "messages": [
             {
+                "role": "system",
+                "content": (
+                    "You are a professional sports photographer and prompt engineer. "
+                    "Your task is to write a precise, cinematic image prompt based on a news article. "
+                    "Rules:\n"
+                    "1. Extract specific names: players, teams, coaches, stadiums, tournaments.\n"
+                    "2. Capture the exact moment or emotion described (celebration, tension, defeat, interview, etc.).\n"
+                    "3. Mention jersey colors, team logos (if relevant), crowd, arena lighting.\n"
+                    "4. For esports (CS2, Dota 2): include player faces if known, team jerseys, stage lighting, monitors.\n"
+                    "5. Style: ultra-realistic, cinematic, 8K, dramatic lighting, shallow depth of field, no text, no watermarks.\n"
+                    "6. Length: 30-50 words.\n"
+                    "Return ONLY the prompt. No explanations, no quotes."
+                ),
+            },
+            {
                 "role": "user",
                 "content": (
-                    "Write a detailed English prompt (20-40 words) for a realistic sports photo. "
-                    "News title: " + title + ". Category: " + category + ". "
-                    "Details: " + (summary[:300] if summary else "") + ". "
-                    "Include specific players, teams, or events mentioned. "
-                    "Style: professional esports/sports photography, cinematic lighting, dramatic, high quality, no text overlays, no watermarks. "
-                    "Return ONLY the prompt, no quotes or explanations."
+                    f"News title: {title}\n"
+                    f"Category: {category}\n"
+                    f"Summary: {summary[:500] if summary else 'N/A'}\n\n"
+                    "Write the image prompt:"
                 ),
             }
         ],
-        "temperature": 0.6,
-        "max_tokens": 80,
+        "temperature": 0.7,
+        "max_tokens": 120,
     }
     try:
         resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=30)
         resp.raise_for_status()
         prompt = resp.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
-        prompt = re.sub(r"^(prompt|image prompt)\s*:\s*", "", prompt, flags=re.I).strip()
-        if len(prompt) < 10:
-            prompt = f"professional sports photography, {category}, dynamic action, high quality"
-        log.info("Промпт для картинки: %s", prompt[:80])
+        prompt = re.sub(r"^(prompt|image prompt|here is|here's)\s*:\s*", "", prompt, flags=re.I).strip()
+        if len(prompt) < 20:
+            prompt = f"ultra-realistic cinematic sports photography, {category}, dramatic lighting, professional, 8K, no text"
+        log.info("Промпт для картинки (%d слов): %s", len(prompt.split()), prompt[:100])
         return prompt
     except Exception as exc:
         log.warning("Не удалось сгенерировать промпт: %s", exc)
-        return f"professional sports photography, {category}, dynamic action, high quality"
+        return f"ultra-realistic cinematic sports photography, {category}, dramatic lighting, professional, 8K, no text"
 
 
 def generate_ai_image_url(prompt: str) -> str | None:
