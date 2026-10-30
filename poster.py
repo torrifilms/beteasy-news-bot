@@ -928,7 +928,15 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
     focus_keyword = extract_focus_keyword(russian_title, news["summary"])
 
     media_id = None
-    if news.get("image_url"):
+    # Приоритет: Grok Imagine → fallback на RSS-картинку
+    img_prompt = generate_image_prompt(russian_title, news.get("summary", ""), news.get("category", ""))
+    ai_url = generate_ai_image_url(img_prompt)
+    if ai_url:
+        media_id = upload_image_to_wp(ai_url, russian_title, news.get("category", ""))
+        if media_id:
+            log.info("Использована Grok Imagine картинка")
+    if not media_id and news.get("image_url"):
+        log.info("Fallback на RSS-картинку")
         media_id = upload_image_to_wp(news["image_url"], russian_title, news.get("category", ""))
 
     allowed_urls = {item["url"] for item in related if item.get("url")}
