@@ -36,5 +36,6 @@ jobs:
           WP_USER:      ${{ secrets.WP_USER }}
           WP_APP_PASS:  ${{ secrets.WP_APP_PASS }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          XAI_API_KEY:  ${{ secrets.XAI_API_KEY }}
           POSTS_PER_RUN: ${{ github.event.inputs.posts_count || '3' }}
         run: python poster.py
