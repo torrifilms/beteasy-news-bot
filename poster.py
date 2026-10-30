@@ -589,11 +589,12 @@ def generate_image_prompt(title: str, summary: str, category: str) -> str:
             {
                 "role": "user",
                 "content": (
-                    "Напиши короткий промпт на английском (15-25 слов) для генерации реалистичной спортивной фотографии. "
-                    "Тема: " + title + ". Категория: " + category + ". "
-                    "Описание: " + (summary[:200] if summary else "") + ". "
-                    "Стиль: professional sports photography, dynamic, high quality, no text, no logos. "
-                    "Верни ТОЛЬКО промпт, без кавычек и пояснений."
+                    "Write a detailed English prompt (20-40 words) for a realistic sports photo. "
+                    "News title: " + title + ". Category: " + category + ". "
+                    "Details: " + (summary[:300] if summary else "") + ". "
+                    "Include specific players, teams, or events mentioned. "
+                    "Style: professional esports/sports photography, cinematic lighting, dramatic, high quality, no text overlays, no watermarks. "
+                    "Return ONLY the prompt, no quotes or explanations."
                 ),
             }
         ],
@@ -615,16 +616,35 @@ def generate_image_prompt(title: str, summary: str, category: str) -> str:
 
 
 def generate_ai_image_url(prompt: str) -> str | None:
-    """Генерирует URL картинки через Pollinations.ai. Возвращает URL или None."""
+    """Генерирует картинку через xAI Grok Imagine API. Возвращает временный URL или None."""
+    xai_key = os.environ.get("XAI_API_KEY", "")
+    if not xai_key:
+        log.warning("XAI_API_KEY не задан, пропускаем AI-картинку")
+        return None
     try:
-        from urllib.parse import quote
-        encoded = quote(prompt[:180])
-        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1200&height=800&nologo=true"
-        # Не проверяем HEAD — сразу возвращаем URL, скачивание проверит позже
-        log.info("AI-картинка URL подготовлен")
-        return url
+        resp = requests.post(
+            "https://api.x.ai/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {xai_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "grok-imagine-image",
+                "prompt": prompt[:500],
+                "n": 1,
+                "aspect_ratio": "16:9",
+            },
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            images = data.get("data", [])
+            if images and images[0].get("url"):
+                log.info("Grok Imagine: картинка сгенерирована")
+                return images[0]["url"]
+        log.warning("Grok Imagine ошибка: HTTP %s %s", resp.status_code, resp.text[:200])
     except Exception as exc:
-        log.warning("Ошибка подготовки AI-картинки: %s", exc)
+        log.warning("Grok Imagine ошибка: %s", exc)
     return None
 
 
