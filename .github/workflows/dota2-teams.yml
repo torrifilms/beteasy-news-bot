@@ -14,4 +14,6 @@ jobs:
           WP_URL: ${{ secrets.WP_URL }}
           WP_USER: ${{ secrets.WP_USER }}
           WP_APP_PASS: ${{ secrets.WP_APP_PASS }}
-        run: python create_dota2_teams.py
+        run: |
+          python create_dota2_teams.py
+          python update_dota2_hub.py
