@@ -1,0 +1,20 @@
+name: Update Team Pages
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'  # каждый день в 09:00 MSK
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install httpx
+      - env:
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASS: ${{ secrets.WP_APP_PASS }}
+          PANDASCORE_API_KEY: ${{ secrets.PANDASCORE_API_KEY }}
+        run: python update_team_pages.py
