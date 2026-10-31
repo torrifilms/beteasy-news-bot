@@ -590,16 +590,18 @@ def generate_image_prompt(title: str, summary: str, category: str) -> str:
             {
                 "role": "system",
                 "content": (
-                    "You are a professional sports photographer and prompt engineer. "
-                    "Your task is to write a precise, cinematic image prompt based on a news article. "
-                    "Rules:\n"
-                    "1. Extract specific names: players, teams, coaches, stadiums, tournaments.\n"
-                    "2. Capture the exact moment or emotion described (celebration, tension, defeat, interview, etc.).\n"
-                    "3. Mention jersey colors, team logos (if relevant), crowd, arena lighting.\n"
-                    "4. For esports (CS2, Dota 2): include player faces if known, team jerseys, stage lighting, monitors.\n"
-                    "5. Style: ultra-realistic, cinematic, 8K, dramatic lighting, shallow depth of field, no text, no watermarks.\n"
-                    "6. Length: 30-50 words.\n"
-                    "Return ONLY the prompt. No explanations, no quotes."
+                    "You are a professional sports photographer. Write a DETAILED image prompt.\n"
+                    "CRITICAL RULES:\n"
+                    "1. MUST include specific names from the news: player names, team names, coach names.\n"
+                    "2. MUST describe jersey colors: e.g. 'red Manchester United jersey', 'yellow NaVi jersey', 'black FaZe jersey'.\n"
+                    "3. MUST show the specific action: transfer talks, goal celebration, interview, stage celebration, etc.\n"
+                    "4. For football: stadium, crowd, specific team kit colors.\n"
+                    "5. For CS2/Dota: player at desk with team jersey, monitors showing game, stage lights, team logo on jersey.\n"
+                    "6. Style: ultra-realistic, cinematic, 8K, dramatic lighting, no text, no watermarks.\n"
+                    "7. Length: 40-60 words. Be SPECIFIC, not generic.\n"
+                    "BAD example: 'football players on field'\n"
+                    "GOOD example: 'Erling Haaland in light blue Manchester City jersey celebrating goal, Etihad Stadium crowd, night match lighting'\n"
+                    "Return ONLY the prompt."
                 ),
             },
             {
@@ -613,7 +615,7 @@ def generate_image_prompt(title: str, summary: str, category: str) -> str:
             }
         ],
         "temperature": 0.7,
-        "max_tokens": 120,
+        "max_tokens": 180,
     }
     try:
         resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=30)
