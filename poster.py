@@ -622,13 +622,14 @@ def generate_image_prompt(title: str, summary: str, category: str) -> str:
         resp.raise_for_status()
         prompt = resp.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
         prompt = re.sub(r"^(prompt|image prompt|here is|here's)\s*:\s*", "", prompt, flags=re.I).strip()
-        if len(prompt) < 20:
-            prompt = f"ultra-realistic cinematic sports photography, {category}, dramatic lighting, professional, 8K, no text"
-        log.info("Промпт для картинки (%d слов): %s", len(prompt.split()), prompt[:100])
+        if len(prompt) < 30:
+            log.warning("Промпт слишком короткий (%d), используем fallback с деталями", len(prompt))
+            prompt = f"ultra-realistic cinematic photo of {title[:80]}, {category}, specific team jersey colors, dramatic stadium lighting, 8K, no text"
+        log.info("Промпт для картинки (%d слов): %s", len(prompt.split()), prompt[:120])
         return prompt
     except Exception as exc:
         log.warning("Не удалось сгенерировать промпт: %s", exc)
-        return f"ultra-realistic cinematic sports photography, {category}, dramatic lighting, professional, 8K, no text"
+        return f"ultra-realistic cinematic photo of {title[:80]}, {category}, team jersey, dramatic lighting, 8K, no text"
 
 
 def generate_ai_image_url(prompt: str) -> str | None:
