@@ -734,6 +734,48 @@ SYSTEM_PROMPT = (
 )
 
 
+def generate_headline(title: str, summary: str, category: str) -> str:
+    """Генерирует заголовок, передающий суть новости, а не просто название команды."""
+    groq_headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Ты спортивный редактор. Напиши заголовок новости на русском языке.\n"
+                    "Правила:\n"
+                    "1. Заголовок должен передавать СУТЬ новости (кто, что сделал, результат).\n"
+                    "2. Не пиши просто название команды. Пример плохо: 'Манчестер Юнайтед'. Пример хорошо: 'Манчестер Юнайтед рассматривает трансфер Калверта-Льюина'.\n"
+                    "3. Длина: 6-12 слов. Конкретно и информативно.\n"
+                    "4. Правильный регистр, полные названия команд и игроков.\n"
+                    "5. Верни ТОЛЬКО заголовок, без кавычек и пояснений."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Категория: {category}\nИсходный заголовок: {title}\nСуть: {summary[:300]}\n\nНапиши заголовок:",
+            },
+        ],
+        "temperature": 0.4,
+        "max_tokens": 60,
+    }
+    try:
+        resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=30)
+        resp.raise_for_status()
+        headline = resp.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+        headline = re.sub(r"^(заголовок|title)\s*:\s*", "", headline, flags=re.I).strip()
+        if len(headline) < 10 or len(headline.split()) < 3:
+            return title
+        log.info("Заголовок: '%s'", headline[:80])
+        return headline
+    except Exception as exc:
+        log.warning("Ошибка генерации заголовка: %s", exc)
+        return title
+
 def translate_title_to_russian(title: str) -> str:
     """Переводит заголовок на русский язык через Groq. Сохраняет полные названия команд."""
     groq_headers = {
@@ -939,7 +981,7 @@ def publish_post(news: dict, content: str, related: list[dict]) -> bool:
     cat_id   = get_or_create_category(news["category"])
     cat_url  = CATEGORY_URLS.get(news["category"])
 
-    russian_title = translate_title_to_russian(news["title"])
+    russian_title = generate_headline(news["title"], news.get("summary", ""), news.get("category", ""))
 
     if not russian_title or russian_title.strip() == "" or len(russian_title) < 5:
         log.warning("Заголовок не переведён или слишком короткий: '%s', пропускаем", russian_title)
