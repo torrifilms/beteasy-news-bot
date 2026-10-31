@@ -735,7 +735,7 @@ SYSTEM_PROMPT = (
 
 
 def translate_title_to_russian(title: str) -> str:
-    """Переводит заголовок на русский язык через Groq."""
+    """Переводит заголовок на русский язык через Groq. Сохраняет полные названия команд."""
     groq_headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type":  "application/json",
@@ -744,26 +744,36 @@ def translate_title_to_russian(title: str) -> str:
         "model":       GROQ_MODEL,
         "messages":    [
             {
-                "role": "user",
+                "role": "system",
                 "content": (
-                    "Переведи этот заголовок на русский язык, сохраняя суть. "
-                    "Верни ТОЛЬКО перевод, без кавычек и без объяснений:\n\n" + title
+                    "Ты переводчик спортивных заголовков. Правила:\n"
+                    "1. Переводи на русский, сохраняя полные названия команд и игроков.\n"
+                    "2. Manchester United = Манчестер Юнайтед (НЕ обрезай до ЮНайт).\n"
+                    "3. Используй правильный регистр: первое слово с заглавной, остальные по правилам.\n"
+                    "4. Не обрезай слова. Не добавляй лишние символы.\n"
+                    "5. Верни ТОЛЬКО перевод, без кавычек и пояснений."
                 ),
             },
+            {
+                "role": "user",
+                "content": title,
+            },
         ],
-        "temperature": 0.5,
-        "max_tokens":  150,
+        "temperature": 0.3,
+        "max_tokens":  100,
     }
 
     try:
         resp = requests.post(GROQ_API_URL, json=payload, headers=groq_headers, timeout=30)
         resp.raise_for_status()
         translated = resp.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
-        # Убираем префиксы вроде "Перевод:"
         translated = re.sub(r"^(перевод|title|заголовок)\s*:\s*", "", translated, flags=re.I).strip()
+        # Fix common truncation issues
+        translated = translated.replace("ЮНайт", "Юнайтед").replace("Юнайт", "Юнайтед")
+        translated = translated.replace("Манчестер Ю", "Манчестер Юнайтед")
         if not translated or len(translated) < 5:
             return title
-        log.info("Заголовок переведён: '%s' → '%s'", title[:50], translated[:50])
+        log.info("Заголовок переведён: '%s' → '%s'", title[:50], translated[:60])
         return translated
     except Exception as exc:
         log.warning("Ошибка перевода заголовка: %s, используем оригинал", exc)
